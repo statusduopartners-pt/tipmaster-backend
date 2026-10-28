@@ -38,8 +38,12 @@ app.post('/api/test-rules', (req, res) => {
           error: 'Jogo não reconhecido.'
         });
     }
-
-    return res.json({
+ 
+if (signal && signal.triggered === true) {
+      broadcastTip(signal);
+    }
+    
+return res.json({
       success: true,
       game,
       result,
@@ -91,9 +95,34 @@ io.on('connection', (socket) => {
 });
 
 // Função para emitir Tip em tempo real para todas as Apps ligadas
-function broadcastTip(tipPayload) {
-  console.log(`🚀 Emissão de Tip em Tempo Real: [${tipPayload.game}] ${tipPayload.title}`);
-  io.emit('new_live_signal', tipPayload);
+function slugify(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function broadcastTip(signal) {
+  if (!signal || signal.triggered !== true) return;
+
+  const liveSignal = {
+    ...signal,
+    id: signal.id || `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    status: signal.status || 'pendente',
+    target: signal.target || signal.title,
+    reference: signal.reference || signal.message,
+    game_name: signal.game_name || signal.game,
+    game_slug: signal.game_slug || slugify(signal.game),
+    signal_type: signal.signal_type || signal.rule
+  };
+
+  console.log(
+    `🚀 Emissão de Tip em Tempo Real: [${liveSignal.game}] ${liveSignal.title}`
+  );
+
+  io.emit('new_live_signal', liveSignal);
 }
 
 // Função para enviar para a API do Telegram
