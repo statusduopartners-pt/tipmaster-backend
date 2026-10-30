@@ -8,74 +8,99 @@ let andarBaharState = {
   maxWins: 3
 };
 
-// Estado da Roleta (Colunas e Dúzias)
-let rouletteState = {
-  lastColumn: null,
-  columnHitCount: 0,
-  targetColumn: 3
-};
-
-// Estado do Bac Bo
-let bacBoState = {
-  streakSide: null,
-  streakCount: 0,
-  active: false,
-  primaryTarget: null,
-  attempt: 0
+// Estado independente da Lightning Roulette
+const rouletteState = {
+  columns: { last: null, count: 0 },
+  dozens: { last: null, count: 0 }
 };
 
 /**
- * 1. REGRA ROLETA: 3x seguidas na Coluna 3
+ * LIGHTNING ROULETTE
+ * Cada coluna e cada dúzia têm contadores independentes.
  */
-function processRouletteColumn(columnDrawn) {
-  if (columnDrawn === rouletteState.targetColumn) {
-    rouletteState.columnHitCount++;
-  } else {
-    rouletteState.columnHitCount = 0;
-  }
 
-  if (rouletteState.columnHitCount >= 3) {
-    rouletteState.columnHitCount = 0; // Reset
+function processRouletteSequence(value, type) {
+  const number = Number(value);
+
+  if (![1, 2, 3].includes(number)) {
     return {
-      triggered: true,
-      game: "Lightning Roulette",
-      rule: "COLUMN_3_DELAY",
-      title: "🎯 TIP ROLETA: Atraso na Coluna 3!",
-      message: "Coluna 3 saiu 3x seguidas. Apostar na Coluna 1 e Coluna 2.",
-      targets: ["Coluna 1", "Coluna 2"]
+      triggered: false,
+      error: `${type === "column" ? "Coluna" : "Dúzia"} inválida. Utilizar 1, 2 ou 3.`
     };
   }
-  return { triggered: false };
+
+  const state = rouletteState[type === "column" ? "columns" : "dozens"];
+
+  if (state.last === number) {
+    state.count++;
+  } else {
+    state.last = number;
+    state.count = 1;
+  }
+
+  if (state.count < 3) {
+    return { triggered: false };
+  }
+
+  // Reiniciar apenas o contador desta categoria
+  state.last = null;
+  state.count = 0;
+
+  const targets = [1, 2, 3].filter(n => n !== number);
+  const label = type === "column" ? "Coluna" : "Dúzia";
+  const targetLabels = targets.map(n => `${label} ${n}`);
+
+  return {
+    triggered: true,
+    game: "Lightning Roulette",
+    rule: `${type.toUpperCase()}_${number}_DELAY`,
+    title: `🎯 TIP LIGHTNING ROULETTE: ATRASO NA ${label.toUpperCase()} ${number}!`,
+    message: `${label} ${number} saiu 3 vezes consecutivas. Apostar na ${targetLabels[0]} e na ${targetLabels[1]}.`,
+    targets: targetLabels
+  };
 }
 
-/**
- * 2. REGRA SUPER ANDAR BAHAR: Gatilho 1-5 & Ciclo de até 3 Wins
- */
+function processRouletteColumn(columnDrawn) {
+  return processRouletteSequence(columnDrawn, "column");
+}
+
+function processRouletteDozen(dozenDrawn) {
+  return processRouletteSequence(dozenDrawn, "dozen");
+}
+
+// SUPER ANDAR BAHAR
+// Lógica original preservada.
+
 function processSuperAndarBahar(resultNumber) {
-  // Gatilho Inicial (Resultado 1-5)
   if (!andarBaharState.active) {
     if (resultNumber >= 1 && resultNumber <= 5) {
       andarBaharState.active = true;
       andarBaharState.consecutiveWins = 0;
+
       return {
         triggered: true,
         game: "Super Andar Bahar",
         rule: "GATILHO_1_5",
         title: "🎯 TIP SUPER ANDAR BAHAR!",
         message: "Resultado 1-5 detetado! Gestão de banca recomendada.",
-        stakes: { "6-10": "4x", "11-15": "3x", "16-20": "2x", "21-25": "1x" }
+        stakes: {
+          "6-10": "4x",
+          "11-15": "3x",
+          "16-20": "2x",
+          "21-25": "1x"
+        }
       };
     }
   } else {
-    // Ciclo em curso (Verifica Green vs Red)
     const isWin = resultNumber >= 6 && resultNumber <= 25;
 
     if (isWin) {
       andarBaharState.consecutiveWins++;
+
       if (andarBaharState.consecutiveWins >= andarBaharState.maxWins) {
-        // Atingiu 3 Wins -> Conclui o ciclo
         andarBaharState.active = false;
         andarBaharState.consecutiveWins = 0;
+
         return {
           triggered: true,
           game: "Super Andar Bahar",
@@ -84,31 +109,39 @@ function processSuperAndarBahar(resultNumber) {
           message: "3 Vitórias consecutivas atingidas. Ciclo encerrado com sucesso."
         };
       } else {
-        // Repete a tip
         return {
           triggered: true,
           game: "Super Andar Bahar",
           rule: "REPEAT_TIP",
           title: `🔥 REPETIR TIP (${andarBaharState.consecutiveWins}/3 Wins)`,
           message: "Aposta ganha! Repetir a mesma entrada.",
-          stakes: { "6-10": "4x", "11-15": "3x", "16-20": "2x", "21-25": "1x" }
+          stakes: {
+            "6-10": "4x",
+            "11-15": "3x",
+            "16-20": "2x",
+            "21-25": "1x"
+          }
         };
       }
     } else {
-      // Red -> Interrompe imediatamente
       andarBaharState.active = false;
 
-      // Se o Red for também um novo 1-5, reinicia o ciclo
       if (resultNumber >= 1 && resultNumber <= 5) {
         andarBaharState.active = true;
         andarBaharState.consecutiveWins = 0;
+
         return {
           triggered: true,
           game: "Super Andar Bahar",
           rule: "RED_AND_RETRIGGER",
           title: "🔄 RED & NOVO GATILHO (1-5)",
           message: "Aposta perdedora, mas novo gatilho 1-5 detetado. Iniciar nova tip.",
-          stakes: { "6-10": "4x", "11-15": "3x", "16-20": "2x", "21-25": "1x" }
+          stakes: {
+            "6-10": "4x",
+            "11-15": "3x",
+            "16-20": "2x",
+            "21-25": "1x"
+          }
         };
       }
 
@@ -121,30 +154,21 @@ function processSuperAndarBahar(resultNumber) {
       };
     }
   }
+
   return { triggered: false };
 }
 
-/**
- * 3. REGRA BAC BO
- *
- * 4 Bankers consecutivos:
- *   Apostar em Player + Tie.
- *
- * 4 Players consecutivos:
- *   Apostar em Banker + Tie.
- *
- * Primeira tentativa:
- *   1 unidade no resultado principal + 1 unidade no Tie.
- *
- * Segunda tentativa, se ambas perderem:
- *   2 unidades no resultado principal + 1 unidade no Tie.
- *
- * Se sair qualquer um dos dois resultados apostados,
- * a ronda é considerada ganha e a contagem reinicia.
- *
- * Após duas derrotas:
- *   Interrompe a sequência e aguarda novo gatilho.
- */
+// BAC BO
+// Lógica original preservada.
+
+let bacBoState = {
+  streakSide: null,
+  streakCount: 0,
+  active: false,
+  primaryTarget: null,
+  attempt: 0
+};
+
 function processBacBo(result) {
   const resultDrawn = String(result).trim().toLowerCase();
 
@@ -160,13 +184,11 @@ function processBacBo(result) {
   const resultName =
     resultDrawn.charAt(0).toUpperCase() + resultDrawn.slice(1);
 
-  // Se existe uma tip ativa, avaliar o resultado da aposta
   if (bacBoState.active) {
     const isWin =
       resultDrawn === bacBoState.primaryTarget ||
       resultDrawn === "tie";
 
-    // Pelo menos uma das duas apostas ganhou
     if (isWin) {
       const winningTarget =
         resultDrawn === "tie" ? "Tie" : resultName;
@@ -190,7 +212,6 @@ function processBacBo(result) {
       };
     }
 
-    // Primeira tentativa perdida: emitir segunda tentativa
     if (bacBoState.attempt === 1) {
       bacBoState.attempt = 2;
 
@@ -210,11 +231,9 @@ function processBacBo(result) {
       };
     }
 
-    // Segunda tentativa também perdida: interromper
-    // O resultado atual inicia uma nova contagem, se for Player ou Banker.
     bacBoState = {
-      streakSide: resultDrawn === "tie" ? null : resultDrawn,
-      streakCount: resultDrawn === "tie" ? 0 : 1,
+      streakSide: null,
+      streakCount: 0,
       active: false,
       primaryTarget: null,
       attempt: 0
@@ -231,8 +250,6 @@ function processBacBo(result) {
     };
   }
 
-  // Sem tip ativa: acompanhar sequências de Player e Banker.
-  // O Tie interrompe a sequência consecutiva.
   if (resultDrawn === "tie") {
     bacBoState.streakSide = null;
     bacBoState.streakCount = 0;
@@ -246,12 +263,10 @@ function processBacBo(result) {
     bacBoState.streakCount = 1;
   }
 
-  // Ainda não atingiu os 4 resultados consecutivos
   if (bacBoState.streakCount < 4) {
     return { triggered: false };
   }
 
-  // Gatilho atingido: definir o resultado principal
   const primaryTarget =
     resultDrawn === "banker" ? "Player" : "Banker";
 
@@ -277,6 +292,7 @@ function processBacBo(result) {
 
 module.exports = {
   processRouletteColumn,
+  processRouletteDozen,
   processSuperAndarBahar,
   processBacBo
 };

@@ -1,5 +1,6 @@
 
 // server.js
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -9,7 +10,7 @@ const rules = require('./rulesEngine');
 const app = express();
 app.use(express.json());
 
-// Receber resultados de teste e verificar as regras
+// Receber resultados e verificar as regras
 app.post('/api/test-rules', (req, res) => {
   const { game, result } = req.body;
 
@@ -23,8 +24,16 @@ app.post('/api/test-rules', (req, res) => {
 
   try {
     switch (game) {
+      // Lightning Roulette - Colunas
+      // Mantém compatibilidade com o identificador anterior.
       case 'rouletteColumn':
+      case 'lightningRoulette':
         signal = rules.processRouletteColumn(Number(result));
+        break;
+
+      // Lightning Roulette - Dúzias
+      case 'lightningRouletteDozen':
+        signal = rules.processRouletteDozen(Number(result));
         break;
 
       case 'superAndarBahar':
@@ -101,7 +110,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Função para emitir Tip em tempo real para todas as Apps ligadas
+// Função para criar identificadores de jogo
 function slugify(text) {
   return String(text || '')
     .toLowerCase()
@@ -111,6 +120,7 @@ function slugify(text) {
     .replace(/^-+|-+$/g, '');
 }
 
+// Função para emitir Tip em tempo real
 function broadcastTip(signal) {
   if (!signal || signal.triggered !== true) return;
 
