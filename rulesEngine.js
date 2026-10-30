@@ -1,3 +1,4 @@
+
 // rulesEngine.js
 
 // Estado do Super Andar Bahar
@@ -14,9 +15,14 @@ let rouletteState = {
   targetColumn: 3
 };
 
-// Estado do Monopoly Roulette (Janela móvel de 1H)
-let monopolyHistory1H = []; // [{ timestamp, number }]
-let monopolyRoundsWithoutHot = 0;
+// Estado do Bac Bo
+let bacBoState = {
+  streakSide: null,
+  streakCount: 0,
+  active: false,
+  primaryTarget: null,
+  attempt: 0
+};
 
 /**
  * 1. REGRA ROLETA: 3x seguidas na Coluna 3
@@ -91,7 +97,7 @@ function processSuperAndarBahar(resultNumber) {
     } else {
       // Red -> Interrompe imediatamente
       andarBaharState.active = false;
-      
+
       // Se o Red for também um novo 1-5, reinicia o ciclo
       if (resultNumber >= 1 && resultNumber <= 5) {
         andarBaharState.active = true;
@@ -119,44 +125,158 @@ function processSuperAndarBahar(resultNumber) {
 }
 
 /**
- * 3. REGRA MONOPOLY ROULETTE: 8 Rodadas sem Hot Numbers da Última 1H
+ * 3. REGRA BAC BO
+ *
+ * 4 Bankers consecutivos:
+ *   Apostar em Player + Tie.
+ *
+ * 4 Players consecutivos:
+ *   Apostar em Banker + Tie.
+ *
+ * Primeira tentativa:
+ *   1 unidade no resultado principal + 1 unidade no Tie.
+ *
+ * Segunda tentativa, se ambas perderem:
+ *   2 unidades no resultado principal + 1 unidade no Tie.
+ *
+ * Se sair qualquer um dos dois resultados apostados,
+ * a ronda é considerada ganha e a contagem reinicia.
+ *
+ * Após duas derrotas:
+ *   Interrompe a sequência e aguarda novo gatilho.
  */
-function processMonopolyRoulette(numberDrawn) {
-  const now = Date.now();
-  const oneHourAgo = now - 3600 * 1000;
+function processBacBo(result) {
+  const resultDrawn = String(result).trim().toLowerCase();
 
-  // 1. Atualiza histórico e remove registos > 1H
-  monopolyHistory1H.push({ timestamp: now, number: numberDrawn });
-  monopolyHistory1H = monopolyHistory1H.filter(r => r.timestamp >= oneHourAgo);
+  const validResults = ["player", "banker", "tie"];
 
-  // 2. Calcula os 8 Hot Numbers da última hora
-  const counts = {};
-  monopolyHistory1H.forEach(r => { counts[r.number] = (counts[r.number] || 0) + 1; });
-  const sortedNumbers = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
-  const hotNumbers = sortedNumbers.slice(0, 8).map(Number);
+  if (!validResults.includes(resultDrawn)) {
+    return {
+      triggered: false,
+      error: "Resultado inválido. Utilizar Player, Banker ou Tie."
+    };
+  }
 
-  // 3. Verifica se saiu um Hot Number
-  if (hotNumbers.includes(numberDrawn)) {
-    monopolyRoundsWithoutHot = 0;
-  } else {
-    monopolyRoundsWithoutHot++;
-    if (monopolyRoundsWithoutHot >= 8) {
-      monopolyRoundsWithoutHot = 0; // Reset
+  const resultName =
+    resultDrawn.charAt(0).toUpperCase() + resultDrawn.slice(1);
+
+  // Se existe uma tip ativa, avaliar o resultado da aposta
+  if (bacBoState.active) {
+    const isWin =
+      resultDrawn === bacBoState.primaryTarget ||
+      resultDrawn === "tie";
+
+    // Pelo menos uma das duas apostas ganhou
+    if (isWin) {
+      const winningTarget =
+        resultDrawn === "tie" ? "Tie" : resultName;
+
+      bacBoState = {
+        streakSide: null,
+        streakCount: 0,
+        active: false,
+        primaryTarget: null,
+        attempt: 0
+      };
+
       return {
         triggered: true,
-        game: "Monopoly Roulette Live",
-        rule: "HOT_NUMBERS_REVERTS",
-        title: "🎯 TIP MONOPOLY: 8 Rodadas sem Hot Numbers!",
-        message: `Apostar 1x em cada um dos 8 Hot Numbers da última hora.`,
-        targets: hotNumbers
+        game: "Bac Bo",
+        rule: "BAC_BO_WIN",
+        title: "🏆 BAC BO: RONDA GANHA!",
+        message: `${winningTarget} saiu. Pelo menos uma das apostas ganhou. Sequência encerrada e contagem reiniciada.`,
+        result: resultName,
+        status: "ganha"
       };
     }
+
+    // Primeira tentativa perdida: emitir segunda tentativa
+    if (bacBoState.attempt === 1) {
+      bacBoState.attempt = 2;
+
+      return {
+        triggered: true,
+        game: "Bac Bo",
+        rule: "BAC_BO_RECOVERY",
+        title: "🔄 BAC BO: SEGUNDA TENTATIVA",
+        message: `Saiu ${resultName}. Primeira tentativa perdida. Duplicar apenas a aposta em ${bacBoState.primaryTarget} e manter a aposta no Tie.`,
+        targets: [bacBoState.primaryTarget, "Tie"],
+        stakes: {
+          primary: 2,
+          tie: 1
+        },
+        attempt: 2,
+        status: "recuperacao"
+      };
+    }
+
+    // Segunda tentativa também perdida: interromper
+    // O resultado atual inicia uma nova contagem, se for Player ou Banker.
+    bacBoState = {
+      streakSide: resultDrawn === "tie" ? null : resultDrawn,
+      streakCount: resultDrawn === "tie" ? 0 : 1,
+      active: false,
+      primaryTarget: null,
+      attempt: 0
+    };
+
+    return {
+      triggered: true,
+      game: "Bac Bo",
+      rule: "BAC_BO_STOP",
+      title: "🛑 BAC BO: SEQUÊNCIA INTERROMPIDA",
+      message: `Saiu ${resultName}. Segunda tentativa perdida. Apostas interrompidas. A aguardar uma nova sequência de 4 resultados consecutivos.`,
+      result: resultName,
+      status: "interrompida"
+    };
   }
-  return { triggered: false };
+
+  // Sem tip ativa: acompanhar sequências de Player e Banker.
+  // O Tie interrompe a sequência consecutiva.
+  if (resultDrawn === "tie") {
+    bacBoState.streakSide = null;
+    bacBoState.streakCount = 0;
+    return { triggered: false };
+  }
+
+  if (bacBoState.streakSide === resultDrawn) {
+    bacBoState.streakCount++;
+  } else {
+    bacBoState.streakSide = resultDrawn;
+    bacBoState.streakCount = 1;
+  }
+
+  // Ainda não atingiu os 4 resultados consecutivos
+  if (bacBoState.streakCount < 4) {
+    return { triggered: false };
+  }
+
+  // Gatilho atingido: definir o resultado principal
+  const primaryTarget =
+    resultDrawn === "banker" ? "Player" : "Banker";
+
+  bacBoState.active = true;
+  bacBoState.primaryTarget = primaryTarget;
+  bacBoState.attempt = 1;
+
+  return {
+    triggered: true,
+    game: "Bac Bo",
+    rule: "BAC_BO_INITIAL",
+    title: `🎯 TIP BAC BO: ${primaryTarget.toUpperCase()} + TIE`,
+    message: `Foram detetados 4 resultados consecutivos de ${resultName}. Apostar em ${primaryTarget} + Tie.`,
+    targets: [primaryTarget, "Tie"],
+    stakes: {
+      primary: 1,
+      tie: 1
+    },
+    attempt: 1,
+    status: "pendente"
+  };
 }
 
 module.exports = {
   processRouletteColumn,
   processSuperAndarBahar,
-  processMonopolyRoulette
+  processBacBo
 };

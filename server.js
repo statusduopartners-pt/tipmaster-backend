@@ -1,3 +1,4 @@
+
 // server.js
 const express = require('express');
 const http = require('http');
@@ -7,6 +8,7 @@ const rules = require('./rulesEngine');
 
 const app = express();
 app.use(express.json());
+
 // Receber resultados de teste e verificar as regras
 app.post('/api/test-rules', (req, res) => {
   const { game, result } = req.body;
@@ -29,8 +31,8 @@ app.post('/api/test-rules', (req, res) => {
         signal = rules.processSuperAndarBahar(Number(result));
         break;
 
-      case 'monopolyRoulette':
-        signal = rules.processMonopolyRoulette(Number(result));
+      case 'bacBo':
+        signal = rules.processBacBo(result);
         break;
 
       default:
@@ -38,17 +40,18 @@ app.post('/api/test-rules', (req, res) => {
           error: 'Jogo não reconhecido.'
         });
     }
- 
-if (signal && signal.triggered === true) {
+
+    if (signal && signal.triggered === true) {
       broadcastTip(signal);
     }
-    
-return res.json({
+
+    return res.json({
       success: true,
       game,
       result,
       signal
     });
+
   } catch (error) {
     console.error('Erro ao processar regra:', error);
 
@@ -75,13 +78,17 @@ app.get('/api/status', (req, res) => {
 });
 
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// Configuração do Telegram (Preencher com as suas chaves)
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "O_SEU_TELEGRAM_BOT_TOKEN";
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "@o_seu_canal_telegram";
+// Configuração do Telegram
+const TELEGRAM_BOT_TOKEN =
+  process.env.TELEGRAM_BOT_TOKEN || "O_SEU_TELEGRAM_BOT_TOKEN";
+
+const TELEGRAM_CHAT_ID =
+  process.env.TELEGRAM_CHAT_ID || "@o_seu_canal_telegram";
 
 // Conexão WebSocket com a App
 io.on('connection', (socket) => {
@@ -148,7 +155,9 @@ async function sendToTelegram(tipPayload) {
         parse_mode: 'Markdown'
       })
     });
+
     console.log("✅ Mensagem enviada para o Telegram com sucesso!");
+
   } catch (err) {
     console.error("❌ Erro ao enviar para o Telegram:", err);
   }
