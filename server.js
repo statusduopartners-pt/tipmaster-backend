@@ -1,5 +1,4 @@
 
-// server.js
 
 const express = require('express');
 const http = require('http');
@@ -24,14 +23,11 @@ app.post('/api/test-rules', (req, res) => {
 
   try {
     switch (game) {
-      // Lightning Roulette - Colunas
-      // Mantém compatibilidade com o identificador anterior.
       case 'rouletteColumn':
       case 'lightningRoulette':
         signal = rules.processRouletteColumn(Number(result));
         break;
 
-      // Lightning Roulette - Dúzias
       case 'lightningRouletteDozen':
         signal = rules.processRouletteDozen(Number(result));
         break;
@@ -99,12 +95,17 @@ const TELEGRAM_BOT_TOKEN =
 const TELEGRAM_CHAT_ID =
   process.env.TELEGRAM_CHAT_ID || "@o_seu_canal_telegram";
 
+// Evitar o envio duplicado do mesmo alerta durante a execução
+const telegramSentSignals = new Set();
+
 // Conexão WebSocket com a App
 io.on('connection', (socket) => {
   console.log(`📱 App conectada ao WebSocket! ID: ${socket.id}`);
 
-  // Endpoint para a App acionar o envio no Telegram
+  // Mantém compatibilidade com o envio solicitado pela App
   socket.on('dispatch_telegram', async (tipData) => {
+    if (!tipData) return;
+
     console.log('📲 Pedido da App para enviar no Telegram:', tipData.title);
     await sendToTelegram(tipData);
   });
@@ -120,7 +121,7 @@ function slugify(text) {
     .replace(/^-+|-+$/g, '');
 }
 
-// Função para emitir Tip em tempo real
+// Função para emitir Tip em tempo real e enviar automaticamente para Telegram
 function broadcastTip(signal) {
   if (!signal || signal.triggered !== true) return;
 
@@ -139,37 +140,83 @@ function broadcastTip(signal) {
     `🚀 Emissão de Tip em Tempo Real: [${liveSignal.game}] ${liveSignal.title}`
   );
 
+  // Envio imediato para a aplicação
   io.emit('new_live_signal', liveSignal);
+
+  // Envio automático para o Telegram, sem bloquear o Socket.IO
+  void sendToTelegram(liveSignal);
 }
 
 // Função para enviar para a API do Telegram
 async function sendToTelegram(tipPayload) {
-  if (TELEGRAM_BOT_TOKEN === "O_SEU_TELEGRAM_BOT_TOKEN") {
+  if (!tipPayload) return;
+
+  if (
+    !TELEGRAM_BOT_TOKEN ||
+    TELEGRAM_BOT_TOKEN === "O_SEU_TELEGRAM_BOT_TOKEN"
+  ) {
     console.log("⚠️ Token do Telegram não configurado.");
     return;
   }
 
+  const signalId = tipPayload.id;
+
+  // Evitar duplicados entre envio automático e pedido da App
+  if (signalId && telegramSentSignals.has(signalId)) {
+    console.log("⚠️ Alerta já enviado ou em processamento:", signalId);
+    return;
+  }
+
+  if (signalId) {
+    telegramSentSignals.add(signalId);
+  }
+
   const textMessage = `${tipPayload.title}\n\n` +
-                      `🎮 *Jogo:* ${tipPayload.game}\n` +
-                      `💡 *Mensagem:* ${tipPayload.message}\n` +
-                      (tipPayload.targets ? `🎯 *Alvos:* ${tipPayload.targets.join(', ')}\n` : '') +
-                      (tipPayload.stakes ? `📊 *Gestão:* ${JSON.stringify(tipPayload.stakes)}` : '');
+    `🎮 *Jogo:* ${tipPayload.game || tipPayload.game_name || 'Não identificado'}\n` +
+    `💡 *Mensagem:* ${tipPayload.message || tipPayload.reference || ''}\n` +
+    (tipPayload.targets
+      ? `🎯 *Alvos:* ${tipPayload.targets.join(', ')}\n`
+      : '') +
+    (tipPayload.stakes
+      ? `📊 *Gestão:* ${JSON.stringify(tipPayload.stakes)}`
+      : '');
 
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: textMessage,
-        parse_mode: 'Markdown'
-      })
-    });
+    const response = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: textMessage,
+          parse_mode: 'Markdown'
+        })
+      }
+    );
 
-    console.log("✅ Mensagem enviada para o Telegram com sucesso!");
+    const result = await response.json();
+
+    if (!response.ok || !result.ok) {
+      throw new Error(
+        result.description || `Erro HTTP ${response.status}`
+      );
+    }
+
+    console.log(
+      "✅ Mensagem enviada para o Telegram:",
+      signalId || tipPayload.title
+    );
 
   } catch (err) {
-    console.error("❌ Erro ao enviar para o Telegram:", err);
+    if (signalId) {
+      telegramSentSignals.delete(signalId);
+    }
+
+    console.error(
+      "❌ Erro ao enviar para o Telegram:",
+      err.message
+    );
   }
 }
 
@@ -180,3 +227,4 @@ server.listen(PORT, () => {
 });
 
 module.exports = { broadcastTip };
+
