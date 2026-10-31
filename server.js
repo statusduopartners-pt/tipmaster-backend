@@ -140,9 +140,9 @@ async function runAnalysisPipeline() {
   console.log('--- [TIPMASTER PRO] PROCESSAMENTO CONCLUÍDO ---');
 }
 
-// Servidor HTTP para escutar o Render e responder à App
+// Servidor HTTP com suporte a Query Parameters (ex: ?sport=futebol)
 const server = http.createServer((req, res) => {
-  // CORS Headers para a App (Base44) poder aceder
+  // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -153,10 +153,21 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url === '/api/tips') {
+  const reqUrl = req.url || '/';
+  const pathname = reqUrl.split('?')[0];
+
+  if (pathname === '/api/tips') {
+    const urlParams = new URLSearchParams(reqUrl.includes('?') ? reqUrl.split('?')[1] : '');
+    const sportFilter = urlParams.get('sport');
+
+    let filteredTips = activeTips;
+    if (sportFilter && sportFilter !== 'todos' && sportFilter !== 'all') {
+      filteredTips = activeTips.filter(t => (t.sport || 'futebol').toLowerCase() === sportFilter.toLowerCase());
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ success: true, count: activeTips.length, tips: activeTips }));
-  } else if (req.url === '/run') {
+    res.end(JSON.stringify({ success: true, count: filteredTips.length, tips: filteredTips }));
+  } else if (pathname === '/run') {
     runAnalysisPipeline();
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Pipeline de análise iniciado manualmente.');
