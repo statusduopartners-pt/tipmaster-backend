@@ -1,4 +1,5 @@
 ﻿require('dotenv').config();
+const http = require('http');
 const axios = require('axios');
 const apiSports = require('./apiSportsService');
 const rulesEngine = require('./rulesEngine');
@@ -6,6 +7,7 @@ const rulesEngine = require('./rulesEngine');
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MIN_EV = parseFloat(process.env.MIN_EV_PERCENTAGE || '5.0');
+const PORT = process.env.PORT || 3000;
 
 const DAILY_LIMITS = {
   futebol: 10,
@@ -71,54 +73,73 @@ async function sendTelegramAlert(tip) {
 async function runAnalysisPipeline() {
   console.log('--- [TIPMASTER PRO] INICIANDO PROCESSAMENTO DA API-SPORTS ---');
 
-  const fixtures = await apiSports.getTodayFixtures();
+  try {
+    const fixtures = await apiSports.getTodayFixtures();
 
-  if (fixtures.length === 0) {
-    console.log('[TIPMASTER PRO] Sem partidas agendadas nas ligas selecionadas para hoje.');
-    return;
-  }
+    if (!fixtures || fixtures.length === 0) {
+      console.log('[TIPMASTER PRO] Sem partidas agendadas nas ligas selecionadas para hoje.');
+      return;
+    }
 
-  const candidateTips = {
-    futebol: [],
-    basquetebol: [],
-    tenis: []
-  };
+    const candidateTips = {
+      futebol: [],
+      basquetebol: [],
+      tenis: []
+    };
 
-  for (const match of fixtures) {
-    console.log(`[ANALISANDO] ${match.teams.home.name} vs ${match.teams.away.name} (${match.league.name})`);
+    for (const match of fixtures) {
+      console.log(`[ANALISANDO] ${match.teams.home.name} vs ${match.teams.away.name} (${match.league.name})`);
 
-    const valueBet = rulesEngine.evaluateMatch ? rulesEngine.evaluateMatch(match) : null;
+      const valueBet = rulesEngine.evaluateMatch ? rulesEngine.evaluateMatch(match) : null;
 
-    if (valueBet && parseFloat(valueBet.ev) >= MIN_EV) {
-      const sportKey = (valueBet.sport || 'futebol').toLowerCase();
-      if (!candidateTips[sportKey]) {
-        candidateTips[sportKey] = [];
+      if (valueBet && parseFloat(valueBet.ev) >= MIN_EV) {
+        const sportKey = (valueBet.sport || 'futebol').toLowerCase();
+        if (!candidateTips[sportKey]) {
+          candidateTips[sportKey] = [];
+        }
+        candidateTips[sportKey].push(valueBet);
       }
-      candidateTips[sportKey].push(valueBet);
     }
-  }
 
-  for (const [sport, tips] of Object.entries(candidateTips)) {
-    if (tips.length === 0) continue;
+    for (const [sport, tips] of Object.entries(candidateTips)) {
+      if (tips.length === 0) continue;
 
-    tips.sort((a, b) => {
-      const evA = parseFloat(String(a.ev).replace(/[^0-9.-]/g, '')) || 0;
-      const evB = parseFloat(String(b.ev).replace(/[^0-9.-]/g, '')) || 0;
-      return evB - evA;
-    });
+      tips.sort((a, b) => {
+        const evA = parseFloat(String(a.ev).replace(/[^0-9.-]/g, '')) || 0;
+        const evB = parseFloat(String(b.ev).replace(/[^0-9.-]/g, '')) || 0;
+        return evB - evA;
+      });
 
-    const limit = DAILY_LIMITS[sport] || 5;
-    const selectedTips = tips.slice(0, limit);
+      const limit = DAILY_LIMITS[sport] || 5;
+      const selectedTips = tips.slice(0, limit);
 
-    console.log(`[SELEÇÃO ${sport.toUpperCase()}] ${selectedTips.length} melhores tips selecionadas de ${tips.length} acumuladas (Limite: ${limit}).`);
+      console.log(`[SELEÇÃO ${sport.toUpperCase()}] ${selectedTips.length} melhores tips selecionadas de ${tips.length} acumuladas (Limite: ${limit}).`);
 
-    for (const tip of selectedTips) {
-      await sendTelegramAlert(tip);
-      await new Promise(r => setTimeout(r, 2000));
+      for (const tip of selectedTips) {
+        await sendTelegramAlert(tip);
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
+  } catch (err) {
+    console.error('[PIPELINE ERRO]', err.message);
   }
 
   console.log('--- [TIPMASTER PRO] PROCESSAMENTO CONCLUÍDO ---');
 }
 
-runAnalysisPipeline();
+// Servidor HTTP para manter o processo ativo no Render
+const server = http.createServer((req, res) => {
+  if (req.url === '/run') {
+    runAnalysisPipeline();
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Pipeline de análise iniciado manualmente.');
+  } else {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('TipMaster Pro Backend está Online e Operacional!');
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`[SERVER] Servidor ativo a escutar na porta ${PORT}`);
+  runAnalysisPipeline();
+});
