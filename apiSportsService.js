@@ -1,77 +1,64 @@
 ﻿require('dotenv').config();
 const axios = require('axios');
 
-const apiSportsClient = axios.create({
-  baseURL: 'https://v3.football.api-sports.io',
-  headers: {
-    'x-apisports-key': process.env.API_SPORTS_KEY,
-    'x-rapidapi-host': 'v3.football.api-sports.io'
-  },
-  timeout: 10000
-});
+const API_SPORTS_KEY = process.env.API_SPORTS_KEY;
+const domain = 'v3.football.api-sports.io';
+const BASE_URL = 'https://' + domain;
 
-const cache = {
-  fixtures: { date: null, data: [] },
-  odds: {}
-};
+// Ligas Principais + Ligas das Américas e Competições CONMEBOL (Madrugada em Portugal)
+const TARGET_LEAGUES = [
+  // Europa
+  94,  // Liga Portugal Betclic
+  39,  // Premier League (Inglaterra)
+  140, // La Liga (Espanha)
+  135, // Serie A (Itália)
+  78,  // Bundesliga (Alemanha)
+  61,  // Ligue 1 (França)
+  2,   // UEFA Champions League
+  
+  // Américas - Ligas Nacionais
+  71,  // Brasil - Brasileirão Série A
+  128, // Argentina - Liga Profesional
+  239, // Colômbia - Primera A
+  262, // México - Liga MX
+  253, // EUA - Major League Soccer (MLS)
 
-// Ligas de topo: Premier League (39), Primeira Liga (94), La Liga (140), Serie A (135), Bundesliga (78), Ligue 1 (61), UCL (2), UEL (3)
-const DEFAULT_LEAGUES = [39, 94, 140, 135, 78, 61, 2, 3];
+  // Américas - Competições Continentais (CONMEBOL)
+  13,  // Copa Libertadores
+  11   // Copa Sul-Americana (Sudamericana)
+];
 
-async function getTodayFixtures(leagueIds = DEFAULT_LEAGUES) {
+async function getTodayFixtures() {
   const today = new Date().toISOString().split('T')[0];
-
-  if (cache.fixtures.date === today && cache.fixtures.data.length > 0) {
-    console.log('[API-SPORTS] A utilizar jogos em cache para hoje.');
-    return cache.fixtures.data;
-  }
+  console.log(`[API-SPORTS] A consultar jogos para a data: ${today}...`);
 
   try {
-    console.log(`[API-SPORTS] A consultar novos jogos para a data: ${today}...`);
-    const response = await apiSportsClient.get('/fixtures', {
+    const response = await axios.get(`${BASE_URL}/fixtures`, {
       params: {
         date: today,
-        status: 'NS',
-        timezone: 'Europe/Lisbon'
+        status: 'NS' // APENAS JOGOS NÃO INICIADOS (Not Started)
+      },
+      headers: {
+        'x-apisports-key': API_SPORTS_KEY
       }
     });
 
     const allFixtures = response.data.response || [];
-    const filteredFixtures = allFixtures.filter(item => 
-      leagueIds.includes(item.league.id)
+    
+    // Filtrar apenas pelas ligas selecionadas
+    const filteredFixtures = allFixtures.filter(fixture => 
+      TARGET_LEAGUES.includes(fixture.league.id)
     );
 
-    cache.fixtures.date = today;
-    cache.fixtures.data = filteredFixtures;
-
-    console.log(`[API-SPORTS] ${filteredFixtures.length} jogos encontrados nas ligas principais.`);
+    console.log(`[API-SPORTS] ${filteredFixtures.length} jogos encontrados nas ligas monitorizadas (Europa + Américas + CONMEBOL).`);
     return filteredFixtures;
   } catch (error) {
-    console.error('[API-SPORTS ERRO] Falha ao consultar fixtures:', error.response?.data || error.message);
-    return [];
-  }
-}
-
-async function getFixtureOdds(fixtureId) {
-  if (cache.odds[fixtureId]) {
-    return cache.odds[fixtureId];
-  }
-
-  try {
-    const response = await apiSportsClient.get('/odds', {
-      params: { fixture: fixtureId }
-    });
-
-    const oddsData = response.data.response?.[0]?.bookmakers || [];
-    cache.odds[fixtureId] = oddsData;
-    return oddsData;
-  } catch (error) {
-    console.error(`[API-SPORTS ERRO] Falha ao obter odds (${fixtureId}):`, error.message);
+    console.error('[API-SPORTS ERRO] Falha ao consultar jogos:', error.response?.data || error.message);
     return [];
   }
 }
 
 module.exports = {
   getTodayFixtures,
-  getFixtureOdds
+  TARGET_LEAGUES
 };
