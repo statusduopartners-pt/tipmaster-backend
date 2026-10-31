@@ -15,7 +15,10 @@ const cache = {
   odds: {}
 };
 
-async function getTodayFixtures(leagueIds = [39, 94, 140, 135, 78, 61, 2, 3]) {
+// Ligas de topo: Premier League (39), Primeira Liga (94), La Liga (140), Serie A (135), Bundesliga (78), Ligue 1 (61), UCL (2), UEL (3)
+const DEFAULT_LEAGUES = [39, 94, 140, 135, 78, 61, 2, 3];
+
+async function getTodayFixtures(leagueIds = DEFAULT_LEAGUES) {
   const today = new Date().toISOString().split('T')[0];
 
   if (cache.fixtures.date === today && cache.fixtures.data.length > 0) {
@@ -24,7 +27,7 @@ async function getTodayFixtures(leagueIds = [39, 94, 140, 135, 78, 61, 2, 3]) {
   }
 
   try {
-    console.log([API-SPORTS] A consultar novos jogos para a data: ...);
+    console.log(`[API-SPORTS] A consultar novos jogos para a data: ${today}...`);
     const response = await apiSportsClient.get('/fixtures', {
       params: {
         date: today,
@@ -41,7 +44,7 @@ async function getTodayFixtures(leagueIds = [39, 94, 140, 135, 78, 61, 2, 3]) {
     cache.fixtures.date = today;
     cache.fixtures.data = filteredFixtures;
 
-    console.log([API-SPORTS]  jogos encontrados nas ligas principais.);
+    console.log(`[API-SPORTS] ${filteredFixtures.length} jogos encontrados nas ligas principais.`);
     return filteredFixtures;
   } catch (error) {
     console.error('[API-SPORTS ERRO] Falha ao consultar fixtures:', error.response?.data || error.message);
@@ -63,7 +66,7 @@ async function getFixtureOdds(fixtureId) {
     cache.odds[fixtureId] = oddsData;
     return oddsData;
   } catch (error) {
-    console.error([API-SPORTS ERRO] Falha ao obter odds ():, error.message);
+    console.error(`[API-SPORTS ERRO] Falha ao obter odds (${fixtureId}):`, error.message);
     return [];
   }
 }

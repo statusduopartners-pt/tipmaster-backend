@@ -8,30 +8,30 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MIN_EV = parseFloat(process.env.MIN_EV_PERCENTAGE || '5.0');
 
 async function sendTelegramAlert(tip) {
-  const url = 'https://' + 'api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage';
+  const url = `[suspicious link removed]{TELEGRAM_BOT_TOKEN}/sendMessage`;
   
-  const mensagem = 
+  const mensagem = `
 ⚽ *DICA DE VALOR (+EV) | TIPMASTER PRO*
 
-⚔️ *Jogo:*  vs 
-🏆 *Competição:* 
-📅 *Data/Hora:* 
+⚔️ *Jogo:* ${tip.homeTeam || 'Equipa A'} vs ${tip.awayTeam || 'Equipa B'}
+🏆 *Competição:* ${tip.league || 'Liga'}
+📅 *Data/Hora:* ${tip.dateTime || 'Hoje'}
 
 💡 *TIP RECOMENDADA:*
-• *Mercado:* 
-• *Odds Atuais:* 
-• *Valor Esperado:* 
-• *Stake Sugerida:* 
+• *Mercado:* ${tip.market || 'Cantos Totais'}
+• *Odds Atuais:* ${tip.odd || '1.85'}
+• *Valor Esperado:* ${tip.ev || '+6.5% EV'}
+• *Stake Sugerida:* ${tip.stake || '1 Unidade'}
 
 🔍 *JUSTIFICAÇÃO RÁPIDA:*
+${tip.justification || 'Tendência estatística favorável apurada pelo modelo TipMaster.'}
 
-
-🌤️ *Clima:*  | 🚨 *Ausências:* 
+🌤️ *Clima:* ${tip.weather || 'Ver na App'} | 🚨 *Ausências:* ${tip.absences || 'Ver na App'}
 
 📲 [Ver Análise Completa na App]([suspicious link removed]{tip.matchId || '12345'})
 
 #Futebol #ValueBet #TipMasterPro
-  .trim();
+  `.trim();
 
   try {
     const payload = {
@@ -40,12 +40,11 @@ async function sendTelegramAlert(tip) {
       parse_mode: 'Markdown',
       disable_web_page_preview: true
     };
-    const bytes = Buffer.from(JSON.stringify(payload), 'utf-8');
 
-    await axios.post(url, bytes, {
+    await axios.post(url, payload, {
       headers: { 'Content-Type': 'application/json; charset=utf-8' }
     });
-    console.log([TELEGRAM SUCESSO] Alerta enviado:  vs );
+    console.log(`[TELEGRAM SUCESSO] Alerta enviado: ${tip.homeTeam || 'Equipa'} vs ${tip.awayTeam || 'Equipa'}`);
   } catch (error) {
     console.error('[TELEGRAM ERRO] Falha ao enviar mensagem:', error.response?.data || error.message);
   }
@@ -62,7 +61,7 @@ async function runAnalysisPipeline() {
   }
 
   for (const match of fixtures) {
-    console.log([ANALISANDO]  vs  ());
+    console.log(`[ANALISANDO] ${match.teams.home.name} vs ${match.teams.away.name} (${match.league.name})`);
 
     const valueBet = rulesEngine.evaluateMatch ? rulesEngine.evaluateMatch(match) : null;
 
