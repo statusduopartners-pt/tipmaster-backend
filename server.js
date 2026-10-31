@@ -9,6 +9,9 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MIN_EV = parseFloat(process.env.MIN_EV_PERCENTAGE || '5.0');
 const PORT = process.env.PORT || 3000;
 
+// Armazenamento em memória das tips ativas enviadas
+let activeTips = [];
+
 const DAILY_LIMITS = {
   futebol: 10,
   basquetebol: 5,
@@ -101,6 +104,8 @@ async function runAnalysisPipeline() {
       }
     }
 
+    const newActiveTips = [];
+
     for (const [sport, tips] of Object.entries(candidateTips)) {
       if (tips.length === 0) continue;
 
@@ -117,8 +122,16 @@ async function runAnalysisPipeline() {
 
       for (const tip of selectedTips) {
         await sendTelegramAlert(tip);
+        newActiveTips.push({
+          ...tip,
+          timestamp: new Date().toISOString()
+        });
         await new Promise(r => setTimeout(r, 2000));
       }
+    }
+
+    if (newActiveTips.length > 0) {
+      activeTips = newActiveTips;
     }
   } catch (err) {
     console.error('[PIPELINE ERRO]', err.message);
@@ -127,9 +140,23 @@ async function runAnalysisPipeline() {
   console.log('--- [TIPMASTER PRO] PROCESSAMENTO CONCLUÍDO ---');
 }
 
-// Servidor HTTP para manter o processo ativo no Render
+// Servidor HTTP para escutar o Render e responder à App
 const server = http.createServer((req, res) => {
-  if (req.url === '/run') {
+  // CORS Headers para a App (Base44) poder aceder
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.url === '/api/tips') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ success: true, count: activeTips.length, tips: activeTips }));
+  } else if (req.url === '/run') {
     runAnalysisPipeline();
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Pipeline de análise iniciado manualmente.');
