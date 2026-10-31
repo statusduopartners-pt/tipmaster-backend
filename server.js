@@ -7,14 +7,12 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MIN_EV = parseFloat(process.env.MIN_EV_PERCENTAGE || '5.0');
 
-// Limites máximos de envios diários por modalidade
 const DAILY_LIMITS = {
   futebol: 10,
   basquetebol: 5,
   tenis: 3
 };
 
-// Emojis e Hashtags por desporto
 const SPORT_META = {
   futebol: { emoji: '⚽', hashtag: '#Futebol' },
   basquetebol: { emoji: '🏀', hashtag: '#Basquetebol' },
@@ -22,33 +20,36 @@ const SPORT_META = {
 };
 
 async function sendTelegramAlert(tip) {
-  const url = `[suspicious link removed]{TELEGRAM_BOT_TOKEN}/sendMessage`;
-  
+  const domain = 'api.telegram.org';
+  const url = 'https://' + domain + '/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage';
+
   const sportKey = (tip.sport || 'futebol').toLowerCase();
   const meta = SPORT_META[sportKey] || SPORT_META.futebol;
+  const matchId = tip.matchId || '12345';
+  const appLink = '[suspicious link removed]' + matchId;
 
-  const mensagem = `
-${meta.emoji} *DICA DE VALOR (+EV) | TIPMASTER PRO*
-
-⚔️ *Jogo:* ${tip.homeTeam || 'Equipa A'} vs ${tip.awayTeam || 'Equipa B'}
-🏆 *Competição:* ${tip.league || 'Liga'}
-📅 *Data/Hora:* ${tip.dateTime || 'Hoje'}
-
-💡 *TIP RECOMENDADA:*
-• *Mercado:* ${tip.market || 'Cantos Totais'}
-• *Odds Atuais:* ${tip.odd || '1.85'}
-• *Valor Esperado:* ${tip.ev || '+6.5% EV'}
-• *Stake Sugerida:* ${tip.stake || '1 Unidade'}
-
-🔍 *JUSTIFICAÇÃO RÁPIDA:*
-${tip.justification || 'Tendência estatística favorável apurada pelo modelo TipMaster.'}
-
-🌤️ *Clima:* ${tip.weather || 'Ver na App'} | 🚨 *Ausências:* ${tip.absences || 'Ver na App'}
-
-📲 [Ver Análise Completa na App]([suspicious link removed]{tip.matchId || '12345'})
-
-${meta.hashtag} #ValueBet #TipMasterPro
-  `.trim();
+  const mensagem = [
+    `${meta.emoji} *DICA DE VALOR (+EV) | TIPMASTER PRO*`,
+    '',
+    `⚔️ *Jogo:* ${tip.homeTeam || 'Equipa A'} vs ${tip.awayTeam || 'Equipa B'}`,
+    `🏆 *Competição:* ${tip.league || 'Liga'}`,
+    `📅 *Data/Hora:* ${tip.dateTime || 'Hoje'}`,
+    '',
+    '💡 *TIP RECOMENDADA:*',
+    `• *Mercado:* ${tip.market || 'Cantos Totais'}`,
+    `• *Odds Atuais:* ${tip.odd || '1.85'}`,
+    `• *Valor Esperado:* ${tip.ev || '+6.5% EV'}`,
+    `• *Stake Sugerida:* ${tip.stake || '1 Unidade'}`,
+    '',
+    '🔍 *JUSTIFICAÇÃO RÁPIDA:*',
+    `${tip.justification || 'Tendência estatística favorável apurada pelo modelo TipMaster.'}`,
+    '',
+    `🌤️ *Clima:* ${tip.weather || 'Ver na App'} | 🚨 *Ausências:* ${tip.absences || 'Ver na App'}`,
+    '',
+    `📲 [Ver Análise Completa na App](${appLink})`,
+    '',
+    `${meta.hashtag} #ValueBet #TipMasterPro`
+  ].join('\n');
 
   try {
     const payload = {
@@ -77,14 +78,12 @@ async function runAnalysisPipeline() {
     return;
   }
 
-  // Acumulador de candidatos por desporto
   const candidateTips = {
     futebol: [],
     basquetebol: [],
     tenis: []
   };
 
-  // 1. Avaliar todas as partidas agendadas
   for (const match of fixtures) {
     console.log(`[ANALISANDO] ${match.teams.home.name} vs ${match.teams.away.name} (${match.league.name})`);
 
@@ -99,11 +98,9 @@ async function runAnalysisPipeline() {
     }
   }
 
-  // 2. Ordenar por maior % EV e enviar respeitando as quotas diárias
   for (const [sport, tips] of Object.entries(candidateTips)) {
     if (tips.length === 0) continue;
 
-    // Ordenar do maior para o menor EV
     tips.sort((a, b) => {
       const evA = parseFloat(String(a.ev).replace(/[^0-9.-]/g, '')) || 0;
       const evB = parseFloat(String(b.ev).replace(/[^0-9.-]/g, '')) || 0;
@@ -117,7 +114,6 @@ async function runAnalysisPipeline() {
 
     for (const tip of selectedTips) {
       await sendTelegramAlert(tip);
-      // Pausa anti-spam de 2 segundos entre mensagens
       await new Promise(r => setTimeout(r, 2000));
     }
   }
