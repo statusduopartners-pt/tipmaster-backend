@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 // Armazenamento em memória das tips ativas
 let activeTips = [];
 
-// Lista de Grupos de Telegram Parceiros (19,99€ / mês)
+// Grupos B2B de Telegram Parceiros (19,99€ / mês)
 let partnerGroups = [
   {
     id: '1',
@@ -23,12 +23,35 @@ let partnerGroups = [
   }
 ];
 
-const DAILY_LIMITS = {
-  futebol: 10,
-  basquetebol: 5,
-  tenis: 3
-};
+// Lista de Afiliados e Influencers
+let affiliates = [
+  {
+    id: 'aff_1',
+    name: 'Pedro Tips',
+    code: 'PEDRO10',
+    activeUsers: 120,
+    inactiveUsers: 15,
+    monthlyPrice: 19.99
+  },
+  {
+    id: 'aff_2',
+    name: 'Canal BetMaster',
+    code: 'BETVIP',
+    activeUsers: 550,
+    inactiveUsers: 42,
+    monthlyPrice: 19.99
+  }
+];
 
+// Função para calcular o escalão de comissão do Afiliado
+function calculateCommissionTier(activeCount) {
+  if (activeCount >= 1000) return 40;
+  if (activeCount >= 500) return 30;
+  if (activeCount >= 100) return 20;
+  return 15;
+}
+
+const DAILY_LIMITS = { futebol: 10, basquetebol: 5, tenis: 3 };
 const SPORT_META = {
   futebol: { emoji: '⚽', hashtag: '#Futebol' },
   basquetebol: { emoji: '🏀', hashtag: '#Basquetebol' },
@@ -38,7 +61,6 @@ const SPORT_META = {
 // Enviar alerta para TODOS os grupos de Telegram ativos
 async function broadcastTelegramAlert(tip) {
   const domain = 'api.telegram.org';
-
   const sportKey = (tip.sport || 'futebol').toLowerCase();
   const meta = SPORT_META[sportKey] || SPORT_META.futebol;
   const matchId = tip.matchId || '12345';
@@ -67,7 +89,6 @@ async function broadcastTelegramAlert(tip) {
     `${meta.hashtag} #ValueBet #TipMasterPro`
   ].join('\n');
 
-  // Filtrar apenas grupos ativos e com mensalidade válida
   const today = new Date().toISOString().split('T')[0];
   const activeTargets = partnerGroups.filter(g => g.active && g.expiresAt >= today);
 
@@ -86,7 +107,7 @@ async function broadcastTelegramAlert(tip) {
       });
       console.log(` ✅ [SUCESSO ENVIADO] Grupo: "${group.name}" (${group.chatId})`);
     } catch (error) {
-      console.error(` ❌ [ERRO ENVO] Grupo: "${group.name}":`, error.response?.data || error.message);
+      console.error(` ❌ [ERRO ENVIAR] Grupo: "${group.name}":`, error.response?.data || error.message);
     }
   }
 }
@@ -137,7 +158,7 @@ async function runAnalysisPipeline() {
   console.log('--- [TIPMASTER PRO] PROCESSAMENTO CONCLUÍDO ---');
 }
 
-// Servidor HTTP com endpoints de Tips e Gestão B2B de Grupos
+// Servidor HTTP
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
@@ -152,7 +173,7 @@ const server = http.createServer((req, res) => {
   const reqUrl = req.url || '/';
   const pathname = reqUrl.split('?')[0];
 
-  // 1. ENDPOINT DE TIPS (+EV)
+  // 1. TIPS +EV
   if (pathname === '/api/tips') {
     const urlParams = new URLSearchParams(reqUrl.includes('?') ? reqUrl.split('?')[1] : '');
     const sportFilter = urlParams.get('sport');
@@ -166,7 +187,7 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ success: true, count: filteredTips.length, tips: filteredTips }));
   } 
   
-  // 2. ENDPOINT DE GESTÃO DE GRUPOS PARCEIOROS (B2B)
+  // 2. GESTÃO DE GRUPOS TELEGRAM (B2B)
   else if (pathname === '/api/groups') {
     if (req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -203,16 +224,65 @@ const server = http.createServer((req, res) => {
         }
       });
     }
-  } 
-  
-  // 3. EXECUÇÃO MANUAL DO PIPELINE
+  }
+
+  // 3. RELATÓRIO DE AFILIADOS E COMISSÕES
+  else if (pathname === '/api/affiliates') {
+    if (req.method === 'GET') {
+      const detailedAffiliates = affiliates.map(aff => {
+        const tierPercent = calculateCommissionTier(aff.activeUsers);
+        const totalRevenue = aff.activeUsers * (aff.monthlyPrice || 19.99);
+        const payout = totalRevenue * (tierPercent / 100);
+
+        return {
+          ...aff,
+          tierPercent,
+          totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+          payout: parseFloat(payout.toFixed(2))
+        };
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: true, affiliates: detailedAffiliates }));
+    } else if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const newAff = JSON.parse(body);
+          if (!newAff.name || !newAff.code) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'Nome e Código do Cupão são obrigatórios.' }));
+            return;
+          }
+
+          affiliates.push({
+            id: 'aff_' + Date.now(),
+            name: newAff.name,
+            code: newAff.code.toUpperCase(),
+            activeUsers: 0,
+            inactiveUsers: 0,
+            monthlyPrice: 19.99
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: true, affiliates }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, message: 'JSON Inválido.' }));
+        }
+      });
+    }
+  }
+
+  // 4. RUN PIPELINE MANUAL
   else if (pathname === '/run') {
     runAnalysisPipeline();
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Pipeline de análise iniciado manualmente.');
-  } 
-  
-  // 4. HEALTH CHECK
+  }
+
+  // 5. HEALTH CHECK
   else {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('TipMaster Pro Backend SaaS está Online e Operacional!');
